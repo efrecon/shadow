@@ -36,8 +36,11 @@ SHADOW_LINK=${SHADOW_LINK:-0}
 # When set to 1, will not copy anything, but rather describe what would be done.
 SHADOW_DRYRUN=${SHADOW_DRYRUN:-0}
 
-# When set to 1, this will prevent copies when the destination already exists.
-SHADOW_SAFE=${SHADOW_SAFE:-0}
+# How to decide upon not copying. The default, empty, is to perform copies.
+# Otherwise can be presence, deleted or added. When presence, will not copy if
+# file is already present. When added or deleted, will not copy if file has
+# added or deleted content.
+SHADOW_SAFE_MODE=${SHADOW_SAFE:-}
 
 
 MAINDIR=$(readlink -f "$(dirname "$(readlink -f "$0")")/..")
@@ -75,7 +78,9 @@ Usage:
     -p | --path         Path to (relative) file to copy. Can appear several times.
     -n | --dryrun       Just show what would be done
     --delete            Delete files in destination instead, this is irreversible!
-    --safe              Do not erase the content of existing files
+    --safe              Safe mode copy operation, can be presence, deleted, added
+                        or empty (no safe mode, files will be forced copied, the
+                        default)
     --link              Create symbolic links to sources instead, will not
                         work if the source files have too restrictive perms.
     --copy              Performs copies (the *good* default)
@@ -137,7 +142,9 @@ while [ $# -gt 0 ]; do
             SHADOW_LINK=0; shift;;
 
         --safe)
-            SHADOW_SAFE=1; shift;;
+            SHADOW_SAFE=$2; shift 2;;
+        --safe=*)
+            SHADOW_SAFE="${1#*=}"; shift 1;;
 
         -n | --dry-run | --dryrun)
             SHADOW_DRYRUN=1; shift;;
@@ -223,12 +230,43 @@ shadow() {
         _user=$(id -un)
         log "Copying $1 to $2, ownership: $_user, perms: $_perms"
         mkdir -p "$(dirname "$2")"
-        # Protect against overwrites when safe-mode is turned on.
-        if [ "$SHADOW_SAFE" = "0" ] || ! [ -f "$2" ]; then
-          $SUDO cp -f "$1" "$2";     # Copy as root to bypass perms
-          $SUDO chown "$_user" "$2"; # Give away the copy to us (as root!)
-          chmod "0$_perms" "$2";      # Change the permissions as the source
-        fi
+        # Protect against overwrites when safe mode has been tuned.
+        case "$SHADOW_SAFE" in
+          presence)
+            if [ -f "$2" ]; then
+              warn "$2 already present, copy prevented!"
+            else
+              $SUDO cp -f "$1" "$2";     # Copy as root to bypass perms
+              $SUDO chown "$_user" "$2"; # Give away the copy to us (as root!)
+              chmod "0$_perms" "$2";      # Change the permissions as the source
+            fi;;
+          removed)
+            if [ -f "$2" ] && \
+              $SUDO diff -u "$1" "$2"|grep -vE '^---'|grep -vE '^\+\+\+'|grep -vE '^@@'|grep -qE '^-'; then
+              warn "$2 already present and with removed content, copy prevented!"
+            else
+              $SUDO cp -f "$1" "$2";     # Copy as root to bypass perms
+              $SUDO chown "$_user" "$2"; # Give away the copy to us (as root!)
+              chmod "0$_perms" "$2";      # Change the permissions as the source
+            fi;;
+          added)
+            if [ -f "$2" ] && \
+              $SUDO diff -u "$1" "$2"|grep -vE '^---'|grep -vE '^\+\+\+'|grep -vE '^@@'|grep -qE '^\+'; then
+              warn "$2 already present and with added content, copy prevented!"
+            else
+              $SUDO cp -f "$1" "$2";     # Copy as root to bypass perms
+              $SUDO chown "$_user" "$2"; # Give away the copy to us (as root!)
+              chmod "0$_perms" "$2";      # Change the permissions as the source
+            fi;;
+          "")
+            $SUDO cp -f "$1" "$2";     # Copy as root to bypass perms
+            $SUDO chown "$_user" "$2"; # Give away the copy to us (as root!)
+            chmod "0$_perms" "$2";      # Change the permissions as the source
+            ;;
+          *)
+            warn "$SHADOW_SAFE is not a recognised safe-mode, copy prevented to avoid damages!"
+            ;;
+        esac
       else
         log "Copying $1 to $2"
       fi
