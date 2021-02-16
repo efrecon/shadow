@@ -4,20 +4,48 @@
 #set -x
 
 # All (good?) defaults
+
+# Verbosity of the script. 1 for more info, 0 for only the essential. Logs are
+# sent to stderr.
 SHADOW_VERBOSE=${SHADOW_VERBOSE:-1}
+
+# User to give ownership of files and directories to. When empty, the default,
+# this will be the current user and copies suppose the current user is able to
+# access the sources. Otherwise, copies will occur using sudo.
 SHADOW_USER=${SHADOW_USER:-}
+
+# Default location for shadowing configuration is the file called shadow.cfg in
+# the current directory.
+SHADOW_CONFIG=${SHADOW_CONFIG:-./shadow.cfg}
+
+# Default source directory. When empty, the default, specified source paths will
+# be relative to the current directory, unless they are explicitely absolute.
+SHADOW_SRCDIR=${SHADOW_SRCDIR:-}
+
+# Default destination directory. By default, this is the current directory.
+SHADOW_DSTDIR=${SHADOW_DSTDIR:-.}
+
+# When set to 1, change what this script does: it will delete all destinations
+# from the config and custom path.
+SHADOW_DELETE=${SHADOW_DELETE:-0}
+
+# When set to 1, will create symbolic links to the sources in the destination
+# instead.
+SHADOW_LINK=${SHADOW_LINK:-0}
+
+# When set to 1, will not copy anything, but rather describe what would be done.
+SHADOW_DRYRUN=${SHADOW_DRYRUN:-0}
+
+# When set to 1, this will prevent copies when the destination already exists.
+SHADOW_SAFE=${SHADOW_SAFE:-0}
+
+
 MAINDIR=$(readlink -f "$(dirname "$(readlink -f "$0")")/..")
 if [ -t 1 ]; then
     INTERACTIVE=1
 else
     INTERACTIVE=0
 fi
-SHADOW_CONFIG=${SHADOW_CONFIG:-./shadow.cfg}
-SHADOW_SRCDIR=${SHADOW_SRCDIR:-}
-SHADOW_DSTDIR=${SHADOW_DSTDIR:-.}
-SHADOW_DELETE=${SHADOW_DELETE:-0}
-SHADOW_LINK=${SHADOW_LINK:-0}
-SHADOW_DRYRUN=${SHADOW_DRYRUN:-0}
 
 # Dynamic vars
 cmdname=$(basename "$(readlink -f "$0")")
@@ -47,6 +75,7 @@ Usage:
     -p | --path         Path to (relative) file to copy. Can appear several times.
     -n | --dryrun       Just show what would be done
     --delete            Delete files in destination instead, this is irreversible!
+    --safe              Do not erase the content of existing files
     --link              Create symbolic links to sources instead, will not
                         work if the source files have too restrictive perms.
     --copy              Performs copies (the *good* default)
@@ -106,6 +135,9 @@ while [ $# -gt 0 ]; do
 
         --copy)
             SHADOW_LINK=0; shift;;
+
+        --safe)
+            SHADOW_SAFE=1; shift;;
 
         -n | --dry-run | --dryrun)
             SHADOW_DRYRUN=1; shift;;
@@ -191,9 +223,12 @@ shadow() {
         _user=$(id -un)
         log "Copying $1 to $2, ownership: $_user, perms: $_perms"
         mkdir -p "$(dirname "$2")"
-        $SUDO cp -f "$1" "$2";     # Copy as root to bypass perms
-        $SUDO chown "$_user" "$2"; # Give away the copy to us (as root!)
-        chmod "0$_perms" "$2";      # Change the permissions as the source
+        # Protect against overwrites when safe-mode is turned on.
+        if [ "$SHADOW_SAFE" = "0" ] || ! [ -f "$2" ]; then
+          $SUDO cp -f "$1" "$2";     # Copy as root to bypass perms
+          $SUDO chown "$_user" "$2"; # Give away the copy to us (as root!)
+          chmod "0$_perms" "$2";      # Change the permissions as the source
+        fi
       else
         log "Copying $1 to $2"
       fi
