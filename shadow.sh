@@ -242,7 +242,7 @@ shadow() {
             fi;;
           removed)
             if [ -f "$2" ] && \
-              $SUDO diff -u "$1" "$2"|grep -vE '^---'|grep -vE '^\+\+\+'|grep -vE '^@@'|grep -qE '^-'; then
+              $SUDO diff -u "$2" "$1"|grep -vE '^---'|grep -vE '^\+\+\+'|grep -vE '^@@'|grep -qE '^-'; then
               warn "$2 already present and with removed content, copy prevented!"
             else
               $SUDO cp -f "$1" "$2";     # Copy as root to bypass perms
@@ -251,7 +251,7 @@ shadow() {
             fi;;
           added)
             if [ -f "$2" ] && \
-              $SUDO diff -u "$1" "$2"|grep -vE '^---'|grep -vE '^\+\+\+'|grep -vE '^@@'|grep -qE '^\+'; then
+              $SUDO diff -u "$2" "$1"|grep -vE '^---'|grep -vE '^\+\+\+'|grep -vE '^@@'|grep -qE '^\+'; then
               warn "$2 already present and with added content, copy prevented!"
             else
               $SUDO cp -f "$1" "$2";     # Copy as root to bypass perms
